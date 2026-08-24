@@ -1,0 +1,18 @@
+========================================
+ Validated Desert Well Seed Search
+========================================
+Seed range : 1 -> 100
+Center     : (676072, -480003)
+Radius     : 100 chunks
+Area       : 201 x 201 chunks
+Validation : RNG + Desert biome
+========================================
+Progress: 6.00% | Seed: 6 / 100 | 3-well: 0 | Rate: 6 seeds/s | Elapsed: 1sProgress: 25.00% | Seed: 25 / 100 | 3-well: 0 | Rate: 12 seeds/s | Elapsed: 2sProgress: 50.00% | Seed: 50 / 100 | 3-well: 0 | Rate: 17 seeds/s | Elapsed: 3sProgress: 72.00% | Seed: 72 / 100 | 3-well: 0 | Rate: 18 seeds/s | Elapsed: 4sProgress: 100.00% | Seed: 100 / 100 | 3-well: 0 | Rate: 20 seeds/s | Elapsed: 5s
+========================================
+ Search complete
+========================================
+Seeds scanned    : 100
+Valid wells      : 179
+Quadwells found  : 0
+3-well seeds     : 0
+========================================

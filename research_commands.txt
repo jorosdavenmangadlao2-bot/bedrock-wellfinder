@@ -1,0 +1,438 @@
+    1      if (radius < 1)''',
+    2      1
+    3  )
+    4  open(p, "w").write(s)
+    5  print("CLI patch applied.")
+    6  PY
+    7  sed -n '382,430p' well_search.c
+    8  cc -O3 well_search.c -I. libcubiomes.a -lm -pthread -o well_search
+    9  ./well_search 1520815389707 1520815389707 676297 -479950 1 4
+   10  sed -n '130,190p' well_search.c
+   11  sed -n '190,380p' well_search.c
+   12  python3 - <<'PY'
+   13  p = "well_search.c"
+   14  s = open(p).read()
+   15  old1 = '''    out->minX = x;
+   16      out->minZ = z;
+   17      out->maxX = x + 1;
+   18      out->maxZ = z + 1;'''
+   19  new1 = '''    out->minX = out->w[0].cx;
+   20      out->minZ = out->w[0].cz;
+   21      out->maxX = out->w[3].cx;
+   22      out->maxZ = out->w[3].cz;'''
+   23  count = s.count(old1)
+   24  if count < 2:
+   25      print("ERROR: expected 2 bounds blocks, found", count)
+   26      raise SystemExit(1)
+   27  s = s.replace(old1, new1, 2)
+   28  open(p, "w").write(s)
+   29  print("Bounds fixed successfully.")
+   30  PY
+   31  sed -n '225,310p' well_search.c
+   32  cc -O3 well_search.c -I. libcubiomes.a -lm -pthread -o well_search
+   33  ./well_search 1520815389707 1520815389707 676297 -479950 1 4
+   34  sed -n '500,635p' well_search.c
+   35  sed -n '600,680p' well_search.c
+   36  python3 - <<'PY'
+   37  p = "well_search.c"
+   38  s = open(p).read()
+   39  # Quadwell phase: only run for pattern 0 or 4
+   40  quad_start = s.index("        /*\n         * ----------------------------------------------------\n         * Phase 2:")
+   41  quad_phase3 = s.index("        /*\n         * ----------------------------------------------------\n         * Phase 3:", quad_start)
+   42  quad = s[quad_start:quad_phase3]
+   43  if "if (pattern == 0 || pattern == 4)" not in quad:
+   44      lines = quad.splitlines()
+   45      # Find first for-loop in the quad section
+   46      idx = next(i for i, line in enumerate(lines)
+   47                 if line.strip().startswith("for (int z ="))
+   48      # Find matching end by using the existing section ending.
+   49      # The quad section always ends immediately before Phase 3.
+   50      body = "\n".join(lines[idx:])
+   51      prefix = "\n".join(lines[:idx])
+   52      quad_new = prefix + '\n        if (pattern == 0 || pattern == 4)\n        {\n'
+   53      quad_new += "\n".join("    " + line for line in body.splitlines())
+   54      quad_new += "\n        }\n\n"
+   55      s = s[:quad_start] + quad_new + s[quad_phase3:]
+   56  # Re-locate Phase 3 and Phase 4 after the first replacement.
+   57  phase3_start = s.index("        /*\n         * ----------------------------------------------------\n         * Phase 3:")
+   58  phase4_start = s.index("        /*\n         * ----------------------------------------------------\n         * Phase 4:", phase3_start)
+   59  phase3 = s[phase3_start:phase4_start]
+   60  if "if (pattern == 0 || pattern == 3)" not in phase3:
+   61      lines = phase3.splitlines()
+   62      idx = next(i for i, line in enumerate(lines)
+   63                 if line.strip().startswith("for (int z ="))
+   64      prefix = "\n".join(lines[:idx])
+   65      body = "\n".join(lines[idx:])
+   66      phase3_new = prefix + '\n        if (pattern == 0 || pattern == 3)\n        {\n'
+   67      phase3_new += "\n".join("    " + line for line in body.splitlines())
+   68      phase3_new += "\n        }\n\n"
+   69      s = s[:phase3_start] + phase3_new + s[phase4_start:]
+   70  # Phase 4 ends at next_seed.
+   71  phase4_start = s.index("        /*\n         * ----------------------------------------------------\n         * Phase 4:")
+   72  next_seed = s.index("next_seed:", phase4_start)
+   73  phase4 = s[phase4_start:next_seed]
+   74  if "if (pattern == 0 || pattern == 2)" not in phase4:
+   75      lines = phase4.splitlines()
+   76      idx = next(i for i, line in enumerate(lines)
+   77                 if line.strip().startswith("for (int z ="))
+   78      prefix = "\n".join(lines[:idx])
+   79      body = "\n".join(lines[idx:])
+   80      phase4_new = prefix + '\n        if (pattern == 0 || pattern == 2)\n        {\n'
+   81      phase4_new += "\n".join("    " + line for line in body.splitlines())
+   82      phase4_new += "\n        }\n\n"
+   83      s = s[:phase4_start] + phase4_new + s[next_seed:]
+   84  open(p, "w").write(s)
+   85  print("Pattern filtering patched successfully.")
+   86  PY
+   87  cc -O3 well_search.c -I. libcubiomes.a -lm -pthread -o well_search
+   88  ./well_search 1520815389707 1520815389707 676297 -479950 1 4
+   89  ./well_search 0 99999 676297 -479950 1 4
+   90  cp well_search.c well_search_backup.c
+   91  sed -n '430,505p' well_search.c
+   92  python3 - <<'PY'
+   93  p = "well_search.c"
+   94  s = open(p).read()
+   95  # Add counters before the seed loop
+   96  old = '''    for (uint64_t seed = seedStart;
+   97           seed <= seedEnd;
+   98           seed++)
+   99      {'''
+  100  new = '''    uint64_t seedsScanned = 0;
+  101      uint64_t rngCandidates = 0;
+  102      uint64_t biomeValidWells = 0;
+  103      uint64_t quadwellFound = 0;
+  104      for (uint64_t seed = seedStart;
+  105           seed <= seedEnd;
+  106           seed++)
+  107      {
+  108          seedsScanned++;'''
+  109  if old not in s:
+  110      print("ERROR: seed loop not found")
+  111      raise SystemExit(1)
+  112  s = s.replace(old, new, 1)
+  113  # Count every validated well
+  114  old = '''                if (get_valid_well(
+  115                          &g,
+  116                          seed,
+  117                          cx,
+  118                          cz,
+  119                          slot))
+  120                  {
+  121                      validCount++;
+  122                  }'''
+  123  new = '''                if (get_valid_well(
+  124                          &g,
+  125                          seed,
+  126                          cx,
+  127                          cz,
+  128                          slot))
+  129                  {
+  130                      validCount++;
+  131                      biomeValidWells++;
+  132                      rngCandidates++;
+  133                  }'''
+  134  if old not in s:
+  135      print("ERROR: well validation block not found")
+  136      raise SystemExit(1)
+  137  s = s.replace(old, new, 1)
+  138  # Count quadwell discoveries
+  139  old = '''                    print_cluster(
+  140                          seed,
+  141                          &c,
+  142                          4);'''
+  143  new = '''                    quadwellFound++;
+  144                      print_cluster(
+  145                          seed,
+  146                          &c,
+  147                          4);'''
+  148  if old not in s:
+  149      print("ERROR: quadwell print block not found")
+  150      raise SystemExit(1)
+  151  s = s.replace(old, new, 1)
+  152  # Add final statistics before free(grid)
+  153  old = '''    printf("\\n========================================\\n");
+  154      printf(" Search complete\\n");
+  155      printf("========================================\\n");
+  156      free(grid);'''
+  157  new = '''    printf("\\n========================================\\n");
+  158      printf(" Search complete\\n");
+  159      printf("========================================\\n");
+  160      printf("Seeds scanned        : %llu\\n",
+  161          (unsigned long long)seedsScanned);
+  162      printf("Valid wells found    : %llu\\n",
+  163          (unsigned long long)biomeValidWells);
+  164      printf("Quadwells found      : %llu\\n",
+  165          (unsigned long long)quadwellFound);
+  166      printf("========================================\\n");
+  167      free(grid);'''
+  168  if old not in s:
+  169      print("ERROR: final display block not found")
+  170      raise SystemExit(1)
+  171  s = s.replace(old, new, 1)
+  172  open(p, "w").write(s)
+  173  print("Statistics patch applied successfully.")
+  174  PY
+  175  cc -O3 well_search.c -I. libcubiomes.a -lm -pthread -o well_search
+  176  ./well_search 1520815389707 1520815389707 676297 -479950 1 4
+  177  sed -n '530,565p' well_search.c
+  178  sed -n '390,430p' well_search.c
+  179  python3 - <<'PY'
+  180  p = "well_search.c"
+  181  s = open(p).read()
+  182  marker = '''    size_t total =
+  183          (size_t)width * (size_t)height;
+  184  '''
+  185  insert = '''    size_t total =
+  186          (size_t)width * (size_t)height;
+  187      uint64_t seedsScanned = 0;
+  188      uint64_t validWells = 0;
+  189      uint64_t quadwellFound = 0;
+  190  '''
+  191  if "uint64_t seedsScanned" not in s:
+  192      if marker not in s:
+  193          print("ERROR: insertion point not found")
+  194          raise SystemExit(1)
+  195      s = s.replace(marker, insert, 1)
+  196      print("Counters inserted.")
+  197  else:
+  198      print("Counters already exist.")
+  199  open(p, "w").write(s)
+  200  PY
+  201  sed -n '415,445p' well_search.c
+  202  qpython3 - <<'PY'
+  203  p = "well_search.c"
+  204  s = open(p).read()
+  205  # 1. Count seeds
+  206  old = '''    for (uint64_t seed = seedStart;
+  207           seed <= seedEnd;
+  208           seed++)
+  209      {
+  210          applySeed('''
+  211  new = '''    for (uint64_t seed = seedStart;
+  212           seed <= seedEnd;
+  213           seed++)
+  214      {
+  215          seedsScanned++;
+  216          applySeed('''
+  217  if old not in s:
+  218      print("ERROR: seed loop pattern not found")
+  219      raise SystemExit(1)
+  220  s = s.replace(old, new, 1)
+  221  # 2. Count validated wells
+  222  old = '''                if (get_valid_well(
+  223                          &g,
+  224                          seed,
+  225                          cx,
+  226                          cz,
+  227                          slot))
+  228                  {
+  229                      validCount++;
+  230                  }'''
+  231  new = '''                if (get_valid_well(
+  232                          &g,
+  233                          seed,
+  234                          cx,
+  235                          cz,
+  236                          slot))
+  237                  {
+  238                      validCount++;
+  239                      validWells++;
+  240                  }'''
+  241  if old not in s:
+  242      print("ERROR: well validation pattern not found")
+  243      raise SystemExit(1)
+  244  s = s.replace(old, new, 1)
+  245  # 3. Count quadwells
+  246  old = '''                    if (find_quadwell(
+  247                              grid,
+  248                              width,
+  249                              height,
+  250                              x,
+  251                              z,
+  252                              &c))
+  253                      {
+  254                          print_cluster(
+  255                              seed,
+  256                              &c,
+  257                              4);
+  258                      }'''
+  259  new = '''                    if (find_quadwell(
+  260                              grid,
+  261                              width,
+  262                              height,
+  263                              x,
+  264                              z,
+  265                              &c))
+  266                      {
+  267                          quadwellFound++;
+  268                          print_cluster(
+  269                              seed,
+  270                              &c,
+  271                              4);
+  272                      }'''
+  273  if old not in s:
+  274      print("ERROR: quadwell block not found")
+  275      raise SystemExit(1)
+  276  s = s.replace(old, new, 1)
+  277  open(p, "w").write(s)
+  278  print("Counter increments added successfully.")
+  279  PY
+  280  cc -O3 well_search.c -I. libcubiomes.a -lm -pthread -o well_search
+  281  ./well_search 1520815389707 1520815389707 676297 -479950 1 4
+  282  python3 - <<'PY'
+  283  p = "well_search.c"
+  284  s = open(p).read()
+  285  old = """    for (uint64_t seed = seedStart;
+  286           seed <= seedEnd;
+  287           seed++)
+  288      {
+  289          applySeed("""
+  290  new = """    for (uint64_t seed = seedStart;
+  291           seed <= seedEnd;
+  292           seed++)
+  293      {
+  294          seedsScanned++;
+  295          applySeed("""
+  296  if old in s and "seedsScanned++" not in s:
+  297      s = s.replace(old, new, 1)
+  298      print("Seed counter added.")
+  299  else:
+  300      print("Seed counter already present or pattern not found.")
+  301  old = """                {
+  302                      validCount++;
+  303                  }"""
+  304  new = """                {
+  305                      validCount++;
+  306                      validWells++;
+  307                  }"""
+  308  if old in s and "validWells++" not in s:
+  309      s = s.replace(old, new, 1)
+  310      print("Well counter added.")
+  311  else:
+  312      print("Well counter already present or pattern not found.")
+  313  old = """                    {
+  314                          print_cluster(
+  315                              seed,
+  316                              &c,
+  317                              4);
+  318                      }"""
+  319  new = """                    {
+  320                          quadwellFound++;
+  321                          print_cluster(
+  322                              seed,
+  323                              &c,
+  324                              4);
+  325                      }"""
+  326  if old in s and "quadwellFound++" not in s:
+  327      s = s.replace(old, new, 1)
+  328      print("Quadwell counter added.")
+  329  else:
+  330      print("Quadwell counter already present or pattern not found.")
+  331  open(p, "w").write(s)
+  332  PY
+  333  grep -nE "seedsScanned|validWells|quadwellFound" well_search.c
+  334  sed -n '630,680p' well_search.c
+  335  python3 - <<'PY'
+  336  p = "well_search.c"
+  337  s = open(p).read()
+  338  old = '''    printf("\\n========================================\\n");
+  339      printf(" Search complete\\n");
+  340      printf("========================================\\n");
+  341      free(grid);'''
+  342  new = '''    printf("\\n========================================\\n");
+  343      printf(" Search complete\\n");
+  344      printf("========================================\\n");
+  345      printf("Seeds scanned    : %llu\\n",
+  346          (unsigned long long)seedsScanned);
+  347      printf("Valid wells      : %llu\\n",
+  348          (unsigned long long)validWells);
+  349      printf("Quadwells found  : %llu\\n",
+  350          (unsigned long long)quadwellFound);
+  351      printf("========================================\\n");
+  352      free(grid);'''
+  353  if old not in s:
+  354      print("ERROR: ending block not found")
+  355      raise SystemExit(1)
+  356  s = s.replace(old, new, 1)
+  357  open(p, "w").write(s)
+  358  print("Statistics display added successfully.")
+  359  PY
+  360  cc -O3 well_search.c -I. libcubiomes.a -lm -pthread -o well_search
+  361  ./well_search 1520815389707 1520815389707 676297 -479950 1 4
+  362  ./well_search 0 999999 676297 -479950 1 4
+  363  ./well_search 1520815389707 1520815389707 676297 -479950 100 4
+  364  ./well_search 1520815389707 1520815389707 676297 -479950 500 4
+  365  time ./well_search 1520815389707 1520815389707 676297 -479950 1000 4
+  366  ./well_search 0 9999999 676297 -479950 1 4
+  367  cd ~/cubiomes-bedrock
+  368  ls
+  369  ls -lh well_search
+  370  pkg install tmux
+  371  tmux
+  372  tmux ls
+  373  tmux attach
+  374  tmux attach-session -t 0
+  375  cd ~/cubiomes-bedrock
+  376  ls -lh
+  377  ls -lh well_search well_test quadwell_test well_biome_test libcubiomes.a
+  378  grep -nE "seedsScanned|validWells|quadwellFound|pattern" well_search.c
+  379  grep -nE "1520815389707|676297|-479950" well_test.c quadwell_test.c well_biome_test.c well_audit.c
+  380  tmux attach
+  381  cd ~/cubiomes-bedrock
+  382  sed -n '250,325p' well_search.c
+  383  sed -n '570,610p' well_search.c
+  384  python3 - <<'PY'
+  385  p = "well_search.c"
+  386  with open(p, "r") as f:
+  387      s = f.read()
+  388  old = """    out->maxX = out->w[3].cx;
+  389      out->maxZ = out->w[3].cz;"""
+  390  new = """    out->maxX = out->w[2].cx;
+  391      out->maxZ = out->w[2].cz;"""
+  392  if old not in s:
+  393      print("ERROR: target lines not found")
+  394      raise SystemExit(1)
+  395  s = s.replace(old, new, 1)
+  396  with open(p, "w") as f:
+  397      f.write(s)
+  398  print("3-well bounds bug fixed.")
+  399  PY
+  400  cc -O3 well_search.c -I. libcubiomes.a -lm -pthread -o well_search
+  401  ./well_search 1520815389707 1520815389707 676297 -479950 1 3
+  402  grep -n "if (n != 3)" well_search.c
+  403  grep -n "currentSeedHasThreewell" well_search.c
+  404  sed -n '600,640p' well_search.c
+  405  tmux attach
+  406  tmux ls
+  407  tmux capture-pane -t 0 -p | tail -20
+  408  tmux capture-pane -t 2 -p | tail -20
+  409  tmux capture-pane -t wellrandom100m -p | tail -20
+  410  tmux capture-pane -t 0 -p | tail -30
+  411  tmux list-panes -t 0 -F '#{pane_dead} | #{pane_current_command}'
+  412  tail -n 5 wellrandom1b.log
+  413  tail -n 20 wellrandom1b.log
+  414  tmux kill-session -t 0
+  415  tmux ls
+  416  tmux kill-session -t wellrandom100m
+  417  tmux ls
+  418  ls -lh *well* *Well* 2>/dev/null
+  419  grep -nE "desert|well|FeatureSeed|nextInt|LCG|surface|height|Y" well_audit.c well_physical_audit.c well_test_2640.c | head -100
+  420  sed -n '1,220p' well_audit.c
+  421  sed -n '1,220p' well_test_2640.c
+  422  grep -RniE "getHeight|surface|heightmap|terrain|genTerrain|Generator|genBiomes" --include='*.c' --include='*.h' . | head -150
+  423  sed -n '1,260p' cave.h
+  424  sed -n '1,240p' cave.c
+  425  sed -n '1,220p' generator.h
+  426  grep -RniE "isSolid\\(|isAir\\(|genBiomes\\(|setBiomeSeed|initGenerator|Generator g" --include='*.c' --include='*.h' . | head -120
+  427  sed -n '530,570p' cave.c
+  428  sed -n '80,135p' generator.c
+  429  sed -n '1,180p' well_biome_test.c
+  430  grep -Rni "MC_26_40\|26_40" --include='*.h' --include='*.c' .
+  431  grep -RniE "initTerrainNoise|initTerrainShaper|initCaveNoise" --include='*.c' --include='*.h' . | head -80
+  432  sed -n '240,530p' cave.c
+  433  grep -RniE "sampleTerrainDensityCavesInterpolated|sampleNoodleAdjustedDensityInterpolated|TerrainCache" --include='*.c' --include='*.h' .
+  434  sed -n '4280,4560p' finders.c
+  435  grep -n "isViableStructurePos" finders.c finders.h
+  436  grep -n -i -C 15 "Desert_Well" finders.c
+  437  grep -n -i -C 20 "desert.*well\|well.*desert" finders.c
+  438  history > research_commands.txt
